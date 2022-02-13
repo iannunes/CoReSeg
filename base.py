@@ -16,6 +16,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import torch
 import sys
+from joblib import Parallel, delayed
 
 def load_my_state_dict(model1, model2):
     own_state = model1.state_dict()
@@ -874,14 +875,24 @@ def parse_arguments():
     parser.add_argument("-prepeval", "--prepeval", dest="prep_eval", type=str2bool, default=False, help="train only if the model do not exists")
     parser.add_argument("-prepthresholds", "--prepthresholds", dest="prep_thresholds", type=str2bool, default=False, help="train only if the model do not exists")
     
-    parser.add_argument("-metrics", "--metrics", dest="metrics", type=str2bool, default=False, help="calculate metrics if eval==true")
+    parser.add_argument("-metrics", "--metrics", dest="metrics", type=str2bool, default=True, help="calculate metrics if eval==true")
     
     parser.add_argument("-final_extra_convs_block", "--final_extra_convs_block", dest="final_extra_convs_block", default="0", help="how many convs the final extra conv block shoul have, 0 - means no extra block")
     parser.add_argument("-model", "--model", dest="model", default='OpenC2Seg', help="model name")
     parser.add_argument("-hidden", "--hidden", dest="hidden", default='0', help="hidden classes")
-    parser.add_argument("-validaterate", "--validaterate", dest="validaterate", default=5, help="hidden classes")
+    parser.add_argument("-validaterate", "--validaterate", dest="validaterate", default=1, help="hidden classes")
     
     args = parser.parse_args()
+    
+    import sys
+    IN_COLAB = 'google.colab' in sys.modules
+    if IN_COLAB:
+        args.datasets_path='datasets'
+        args.ckpt_path='ckpt'
+        args.outp_path='outputs'
+        print("IN_COLAB")
+    else:
+        print("NOT_IN_COLAB")
     return args
 
 def validate_train(loader, net, args, thresholds, overlap):
@@ -998,23 +1009,46 @@ def train_os(train_loader, net, criterion, optimizer, epoch, num_known_classes, 
     return train_loss
 
 
-def config_execution(args,dataset, hidden, task):
+def config_execution(args,dataset, hidden, task, epochs=None):
     args.final_extra_convs_block = '0'
     
     if task=='train' or task=='all':
         args.train_model=True
-    elif task=='prepare_evaluation' or task=='all':
+    if task=='prepare_evaluation' or task=='all':
         args.prep_eval=True
-    elif task=='define_thresholds' or task=='all':
+    if task=='define_thresholds' or task=='all':
         args.prep_thresholds=True
-    elif task=='eval' or task=='all':
+    if task=='eval' or task=='all':
         args.eval_model=True
-    
 
     if dataset=='vaihingen':
         args.dataset='Vaihingen'
+        if hidden==0:
+            args.alphas='0.92'
+        elif hidden==1:
+            args.alphas='0.89'
+        elif hidden==2:
+            args.alphas='0.89'
+        elif hidden==3:
+            args.alphas='0.93'
+        elif hidden==4:
+            args.alphas='0.94'
     elif dataset=='potsdam':
         args.dataset='Potsdam'
+        if hidden==0:
+            args.alphas='0.95'
+        elif hidden==1:
+            args.alphas='0.85'
+        elif hidden==2:
+            args.alphas='0.94'
+        elif hidden==3:
+            args.alphas='0.92'
+        elif hidden==4:
+            args.alphas='0.85'
+    args.epochs=100
+    if epochs is not None:
+        args.epochs=int(epochs)
+            
 
     args.hidden=str(hidden)
     args.backgroundclasses = []
@@ -1080,10 +1114,10 @@ def config_execution(args,dataset, hidden, task):
     args.thresholds.append(0.80)
     args.thresholds.append(0.75)
     args.thresholds.append(0.70)
-
+    args.thresholds.sort()
+    
     if args.dataset=='Vaihingen':
-        args.thresholds.sort()
-        args.local_batch_size=1
+        args.local_batch_size=2
     else:
         args.local_batch_size=1
 
@@ -1375,7 +1409,7 @@ def get_os_metrics2(net_unique_name, args, flatten_full_minlosses, flatten_full_
     
     if args.metrics:
         print('generating metrics')
-        restuls = Parallel(n_jobs=1)(delayed(parallel_metrics)(t,net_unique_name, args, flatten_full_minlosses, flatten_full_msks, flatten_full_prds, flatten_superpixels, num_known_classes, thresholds, thresholds_values, metrics_path, image_path,roc_auc_metrics) for t in range(0,len(thresholds)))
+        restuls = Parallel(n_jobs=10)(delayed(parallel_metrics)(t,net_unique_name, args, flatten_full_minlosses, flatten_full_msks, flatten_full_prds, flatten_superpixels, num_known_classes, thresholds, thresholds_values, metrics_path, image_path,roc_auc_metrics) for t in range(0,len(thresholds)))
         print(restuls)
     return roc_auc_metrics
 
@@ -1486,7 +1520,8 @@ def load_images_array(images_path, save_name, suffix, qtd_imgs):
     trues = []
     prds = []
     minlosses = []
-    if str(type(qtd_imgs)) in ["<class 'list'>",'torch.utils.data.dataloader.DataLoader']:
+    #print(type(qtd_imgs))
+    if str(type(qtd_imgs)) in ["<class 'list'>","<class 'torch.utils.data.dataloader.DataLoader'>"]:
         qtd_imgs = len(qtd_imgs)
     
     for i in range(0,qtd_imgs):
@@ -1529,3 +1564,85 @@ def save_roc_fig(roc_auc_metrics, image_path):
     plt.close()
     
 from skimage import color
+
+def parallel_metrics(t,net_unique_name, args, flatten_full_minlosses, flatten_full_msks, flatten_full_prds, flatten_superpixels, num_known_classes, thresholds, thresholds_values, metrics_path, image_path, roc_auc_metrics):
+    print (t)
+    os_prds = None
+    os_prds = np.copy(flatten_full_prds)
+    unknown_pixels = flatten_full_minlosses >= thresholds_values[t]
+    os_prds[unknown_pixels] = num_known_classes
+
+    total_metrics = get_curr_metric(flatten_full_msks,os_prds,num_known_classes)
+
+    str_log = 'full_image;'+net_unique_name+';'
+    str_log += str(thresholds[t])+';'+str(thresholds_values[t])+';'
+    str_log += str(args.epochs)+';'+str(args.lr)+';'+str(args.weight_decay)+';'+str(args.momentum)+';'
+    str_log += str(args.n_classes)+';'+str(args.select_non_match)+';'+str(args.ignore_others_non_match)+';'
+    str_log += str(args.hidden_classes)+';'+str(args.dataset)+';'+str(num_known_classes)+';'+str(args.num_unknown_classes)+';'
+    str_log += str(total_metrics[0])+';'
+    str_log += str(total_metrics[1])+';'
+    str_log += str(total_metrics[2])+';'
+    str_log += str(total_metrics[3])+';'
+    str_log += str(total_metrics[4])+';'
+    str_log += str(total_metrics[5])+';'
+    str_log += str(roc_auc_metrics[4])+';\n'
+
+    f = open(metrics_path, "a")
+    f.write(str_log)
+    f.close()
+    return t
+
+def get_curr_metric(msk, prd, n_known):
+    
+    tru_np = msk.ravel()
+    prd_np = prd.ravel()
+    
+    #print(np.unique(tru_np,return_counts=True))
+    #print(np.unique(prd_np,return_counts=True))
+    
+    tru_valid = tru_np[tru_np <= n_known]
+    prd_valid = prd_np[tru_np <= n_known]
+    
+    #print('        Computing CM...')
+    cm = metrics.confusion_matrix(tru_valid, prd_valid)
+    
+    #print(cm)
+
+    #print('        Computing Accs...')
+    tru_known = 0.0
+    sum_known = 0.0
+
+    for c in range(n_known):
+        tru_known += float(cm[c, c])
+        sum_known += float(cm[c, :].sum())
+
+    acc_known = float(tru_known) / float(sum_known)
+
+    tru_unknown = float(cm[n_known, n_known])
+    sum_unknown_real = float(cm[n_known, :].sum())
+    sum_unknown_pred = float(cm[:, n_known].sum())
+    
+    pre_unknown = 0.0
+    rec_unknown = 0.0
+    
+    if sum_unknown_pred != 0.0:
+        pre_unknown = float(tru_unknown) / float(sum_unknown_pred)
+    if sum_unknown_real != 0.0:
+        rec_unknown = float(tru_unknown) / float(sum_unknown_real)
+        
+    acc_unknown = (tru_known + tru_unknown) / (sum_known + sum_unknown_real)
+    
+    acc_mean = (acc_known + acc_unknown) / 2.0
+    
+    #print('        Computing Balanced Acc...')
+    bal = metrics.balanced_accuracy_score(tru_valid, prd_valid)
+    
+    #print('        Computing Kappa...')
+    kap = metrics.cohen_kappa_score(tru_valid, prd_valid)
+    
+    #print('        Computing AUC...')
+    #auc = metrics.auc(prd_valid, tru_valid)
+    
+    curr_metrics = [acc_known, acc_unknown, pre_unknown, rec_unknown, bal, kap]
+    
+    return curr_metrics
