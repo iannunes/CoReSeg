@@ -887,7 +887,7 @@ def parse_arguments():
     import sys
     IN_COLAB = 'google.colab' in sys.modules
     if IN_COLAB:
-        args.datasets_path='datasets'
+        args.datasets_path='.'
         args.ckpt_path='ckpt'
         args.outp_path='outputs'
         print("IN_COLAB")

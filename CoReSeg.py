@@ -97,7 +97,7 @@ class DecoderBlock(nn.Module):
 
         return self.decode(x)
 
-class OpenC2Seg(nn.Module):
+class CoReSeg(nn.Module):
 
     # gera uma string com um token único para o modelo, usado para gerar o nome do arquivo a ser salvo e para gerar as clunas dos arquivos de log ou resultados
     def unique_name(self, separator=';'):
@@ -105,11 +105,11 @@ class OpenC2Seg(nn.Module):
     
     def __init__(self, input_channels, num_classes, hidden_classes=None, conv_channels=64, conditioned_one_hot_encoding=True, norm='batch', activation='relu', skipConnections='all', finalextraconvsblock=2, alpha=0.95, args=None):
         
-        super(OpenC2Seg, self).__init__()
+        super(CoReSeg, self).__init__()
 
         self.alpha=alpha
         self.args=args
-        self.name='OpenC2Seg'
+        self.name='CoReSeg'
         self.conv_channels = conv_channels
         self.input_channels = input_channels
         self.num_classes = num_classes
