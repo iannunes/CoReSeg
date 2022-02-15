@@ -261,7 +261,7 @@ class ListDatasetC2AE(data.Dataset):
                         os.path.join(dsm_dir, it.replace('top_potsdam_', 'dsm_potsdam_').replace('_IRRG.tif', '_normalized_lastools.jpg'))
                     )
                     items.append(item)
-            print('loader in memory: ',self.inmemory)
+            #print('loader in memory: ',self.inmemory)
             if self.inmemory:    
                 for i in range(0,len(items)):
                     img_path, msk_path, dsm_path = items[i]
@@ -847,7 +847,7 @@ def parse_arguments():
     parser.add_argument("-lr", "--lr", dest="lr", type=float, default=1e-3, help="learning rate")
     parser.add_argument("-wd", "--weight_decay", dest="weight_decay", type=float, default=5e-4, help="weight decay")
     parser.add_argument("-momentum", "--momentum", dest="momentum", type=float, default=0.9, help="momentum")
-    parser.add_argument("-w", "--workers", dest="workers", type=int, default=10, help="data loarder workers")
+    parser.add_argument("-w", "--workers", dest="workers", type=int, default=4, help="data loarder workers")
     parser.add_argument("-w_size", "--w_size", dest="w_size",type=int, default=224, help="width for image resizing")
     parser.add_argument("-h_size", "--h_size", dest="h_size",type=int, default=224, help="height for image resizing")
     parser.add_argument("-n", "--n_classes", dest="n_classes",type=int, default=5, help="number of classes")
@@ -878,7 +878,7 @@ def parse_arguments():
     parser.add_argument("-metrics", "--metrics", dest="metrics", type=str2bool, default=True, help="calculate metrics if eval==true")
     
     parser.add_argument("-final_extra_convs_block", "--final_extra_convs_block", dest="final_extra_convs_block", default="0", help="how many convs the final extra conv block shoul have, 0 - means no extra block")
-    parser.add_argument("-model", "--model", dest="model", default='OpenC2Seg', help="model name")
+    parser.add_argument("-model", "--model", dest="model", default='CoReSeg', help="model name")
     parser.add_argument("-hidden", "--hidden", dest="hidden", default='0', help="hidden classes")
     parser.add_argument("-validaterate", "--validaterate", dest="validaterate", default=1, help="hidden classes")
     
@@ -1014,11 +1014,11 @@ def config_execution(args,dataset, hidden, task, epochs=None):
     
     if task=='train' or task=='all':
         args.train_model=True
-    if task=='prepare_evaluation' or task=='all':
+    if task=='prepare_evaluation' or task=='all' or task=='eval_all':
         args.prep_eval=True
-    if task=='define_thresholds' or task=='all':
+    if task=='define_thresholds' or task=='all' or task=='eval_all':
         args.prep_thresholds=True
-    if task=='eval' or task=='all':
+    if task=='eval' or task=='all' or task=='eval_all':
         args.eval_model=True
 
     if dataset=='vaihingen':
@@ -1074,7 +1074,7 @@ def config_execution(args,dataset, hidden, task, epochs=None):
     if args.dataset=='Vaihingen':
         pretreined_path_closedset = args.ckpt_path+'/'+args.cs_name+'_'+args.dataset+'_base_dsm_'+str(args.hidden_classes[0])+'/model_1200.pth'
 
-    print("ARQUIVO PRETREINO EXISTE? ",os.path.isfile(pretreined_path_closedset))
+    print("Closed set pretreined model file exists? ",os.path.isfile(pretreined_path_closedset))
 
     pretrained_path = os.path.join(args.ckpt_path, exp_name, 'model_os_' + str(args.select_non_match)+"_" + str(args.ignore_others_non_match) + "_" + str(args.epochs) + '.pth')
 
@@ -1521,7 +1521,7 @@ def load_images_array(images_path, save_name, suffix, qtd_imgs):
     prds = []
     minlosses = []
     #print(type(qtd_imgs))
-    if str(type(qtd_imgs)) in ["<class 'list'>","<class 'torch.utils.data.dataloader.DataLoader'>"]:
+    if str(type(qtd_imgs)) in ["<class 'list'>","<class 'torch.utils.data.dataloader.DataLoader'>", "torch.utils.data.dataloader.DataLoader","list"]:
         qtd_imgs = len(qtd_imgs)
     
     for i in range(0,qtd_imgs):
